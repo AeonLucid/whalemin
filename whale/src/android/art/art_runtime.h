@@ -64,7 +64,11 @@ class ArtRuntime final {
 
     ArtRuntime() {}
 
-    bool OnLoad(JavaVM *vm, JNIEnv *env, jclass java_class);
+ private:
+    bool InjectLoader(JNIEnv *env);
+
+ public:
+    bool OnLoad(JavaVM *vm, JNIEnv *env);
 
     jlong HookMethod(JNIEnv *env, jclass decl_class, jobject hooked_java_method,
                      jobject addition_info);
@@ -130,7 +134,8 @@ class ArtRuntime final {
  private:
     JavaVM *vm_;
     jclass java_class_;
-    jmethodID bridge_method_;
+    jobject custom_loader_;
+    // jmethodID bridge_method_;
     s4 api_level_;
     void *art_elf_image_;
     NativeBridgeCallbacks OPTION *android_bridge_callbacks_;

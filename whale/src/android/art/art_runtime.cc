@@ -14,6 +14,8 @@
 #include "base/logging.h"
 #include "base/singleton.h"
 #include "base/cxx_helper.h"
+#include "art_utils.h"
+#include "classes.cc"
 
 namespace whale {
 namespace art {
@@ -29,8 +31,63 @@ void PreLoadRequiredStuff(JNIEnv *env) {
     ScopedNoGCDaemons::Load(env);
 }
 
+bool ArtRuntime::InjectLoader(JNIEnv *env) {
+    jclass classloader = env->FindClass("java/lang/ClassLoader");
+    jmethodID getsyscl_mid = env->GetStaticMethodID(classloader, "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
+    jobject sys_classloader = env->CallStaticObjectMethod(classloader, getsyscl_mid);
 
-bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env, jclass java_class) {
+    if (sys_classloader == nullptr) {
+        LOG(ERROR) << "InjectClasses failed: getSystemClassLoader.";
+        return false;
+    }
+
+    jclass memoryclassloader_cls = env->FindClass("dalvik/system/InMemoryDexClassLoader");
+    if (memoryclassloader_cls != nullptr) {
+        // Create java byte array of dex file.
+        jbyteArray dexBytes = env->NewByteArray(sizeof(whaleDex));
+        env->SetByteArrayRegion(dexBytes, 0, sizeof(whaleDex), (const jbyte *) whaleDex);
+
+        // Create bytebuffer of the dex file.
+        jclass bytebuffer_cls = env->FindClass("java/nio/ByteBuffer");
+        jmethodID bytebuffer_mid = env->GetStaticMethodID(bytebuffer_cls, "wrap", "([B)Ljava/nio/ByteBuffer;");
+        jobject bytebuffer = env->CallStaticObjectMethod(bytebuffer_cls, bytebuffer_mid, dexBytes);
+
+        // Create InMemoryDexClassLoader.
+        jmethodID memoryclassloader_constr = env->GetMethodID(memoryclassloader_cls, "<init>", "(Ljava/nio/ByteBuffer;Ljava/lang/ClassLoader;)V");
+        jobject myloader = env->NewObject(memoryclassloader_cls, memoryclassloader_constr, bytebuffer, sys_classloader);
+
+        custom_loader_ = env->NewGlobalRef(myloader);
+
+        // Clean-up.
+        env->DeleteLocalRef(dexBytes);
+    } else {
+        LOG(ERROR) << "InjectClasses failed: InMemoryDexClassLoader missing, SDK < 26.";
+        return false;
+    }
+
+    jclass whale_runtime_cls = find_class_from_loader(env, custom_loader_, "com/lody/whale/WhaleRuntime");
+    if (whale_runtime_cls == nullptr) {
+        LOG(ERROR) << "InjectClasses failed: WhaleRuntime missing.";
+        return false;
+    }
+
+    java_class_ = (jclass) env->NewGlobalRef(whale_runtime_cls);
+
+    // Register natives so jni_code_offset_ can be found.
+    static JNINativeMethod gMethods[] = {
+            NATIVE_METHOD(WhaleRuntime, reserved0, "()V"),
+            NATIVE_METHOD(WhaleRuntime, reserved1, "()V")
+    };
+
+    if (env->RegisterNatives(java_class_, gMethods, NELEM(gMethods)) < 0) {
+        LOG(ERROR) << "RegisterNatives failed for WhaleRuntime";
+        return false;
+    }
+
+    return true;
+}
+
+bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env) {
 #define CHECK_FIELD(field, value)  \
     if ((field) == (value)) {  \
         LOG(ERROR) << "Failed to find " #field ".";  \
@@ -43,12 +100,17 @@ bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env, jclass java_class) {
         return false;
     }
     vm_ = vm;
-    java_class_ = reinterpret_cast<jclass>(env->NewGlobalRef(java_class));
-    bridge_method_ = env->GetStaticMethodID(
-            java_class,
-            "handleHookedMethod",
-            "(Ljava/lang/reflect/Member;JLjava/lang/Object;Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;"
-    );
+
+    if (!InjectLoader(env)) {
+        return false;
+    }
+
+//    bridge_method_ = env->GetStaticMethodID(
+//            java_class,
+//            "handleHookedMethod",
+//            "(Ljava/lang/reflect/Member;JLjava/lang/Object;Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;"
+//    );
+
     if (JNIExceptionCheck(env)) {
         return false;
     }
@@ -70,8 +132,8 @@ bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env, jclass java_class) {
     size_t entrypoint_filed_size = (api_level_ <= ANDROID_LOLLIPOP) ? 8
                                                                     : kPointerSize;
     u4 expected_access_flags = kAccPrivate | kAccStatic | kAccNative;
-    jmethodID reserved0 = env->GetStaticMethodID(java_class, kMethodReserved0, "()V");
-    jmethodID reserved1 = env->GetStaticMethodID(java_class, kMethodReserved1, "()V");
+    jmethodID reserved0 = env->GetStaticMethodID(java_class_, kMethodReserved0, "()V");
+    jmethodID reserved1 = env->GetStaticMethodID(java_class_, kMethodReserved1, "()V");
 
     for (offset_t offset = 0; offset != sizeof(u4) * 24; offset += sizeof(u4)) {
         if (MemberOf<u4>(reserved0, offset) == expected_access_flags) {
@@ -108,7 +170,7 @@ bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env, jclass java_class) {
             art_elf_image_,
             "art_quick_generic_jni_trampoline"
     );
-    env->CallStaticVoidMethod(java_class, reserved0);
+    env->CallStaticVoidMethod(java_class_, reserved0);
 
     /**
      * Fallback to do a relative memory search for quick_generic_jni_trampoline,
@@ -329,7 +391,8 @@ ArtThread *ArtRuntime::GetCurrentArtThread() {
 jobject
 ArtRuntime::InvokeHookedMethodBridge(JNIEnv *env, ArtHookParam *param, jobject receiver,
                                      jobjectArray array) {
-    return env->CallStaticObjectMethod(java_class_, bridge_method_,
+    // TODO: Update to a c function call.
+    return env->CallStaticObjectMethod(nullptr, nullptr,
                                        param->hooked_method_, reinterpret_cast<jlong>(param),
                                        param->addition_info_, receiver, array);
 }
