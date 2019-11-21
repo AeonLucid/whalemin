@@ -31,7 +31,7 @@
 #endif
 
 
-OPEN_API void WInlineHookFunction(void *address, void *replace, void **backup) {
+void WInlineHookFunction(void *address, void *replace, void **backup) {
 #if defined(__arm__)
     std::unique_ptr<whale::Hook> hook(
             new whale::arm::ArmInlineHook(
@@ -73,7 +73,7 @@ OPEN_API void WInlineHookFunction(void *address, void *replace, void **backup) {
 #endif
 }
 
-OPEN_API void WImportHookFunction(const char *name, const char *libname, void *replace, void **backup) {
+void WImportHookFunction(const char *name, const char *libname, void *replace, void **backup) {
 #if defined(__APPLE__)
     std::unique_ptr<whale::Hook> hook(new whale::darwin::MachoImportHook(
             name,
@@ -84,7 +84,7 @@ OPEN_API void WImportHookFunction(const char *name, const char *libname, void *r
 #endif
 }
 
-OPEN_API void *WDynamicLibOpen(const char *name) {
+void *WDynamicLibOpen(const char *name) {
 #ifdef linux
     auto range = whale::FindExecuteMemoryRange(name);
     if (!range->IsValid()) {
@@ -101,7 +101,7 @@ OPEN_API void *WDynamicLibOpen(const char *name) {
 #endif
 }
 
-OPEN_API void *WDynamicLibOpenAlias(const char *name, const char *path) {
+void *WDynamicLibOpenAlias(const char *name, const char *path) {
 #ifdef linux
     auto range = whale::FindExecuteMemoryRange(name);
     if (!range->IsValid()) {
@@ -118,7 +118,7 @@ OPEN_API void *WDynamicLibOpenAlias(const char *name, const char *path) {
 #endif
 }
 
-OPEN_API void *WDynamicLibSymbol(void *handle, const char *name) {
+void *WDynamicLibSymbol(void *handle, const char *name) {
     if (handle == nullptr || name == nullptr) {
         return nullptr;
     }
@@ -130,7 +130,7 @@ OPEN_API void *WDynamicLibSymbol(void *handle, const char *name) {
 #endif
 }
 
-OPEN_API void WDynamicLibClose(void *handle) {
+void WDynamicLibClose(void *handle) {
 #ifdef linux
     whale::ElfImage *image = reinterpret_cast<whale::ElfImage *>(handle);
         delete image;
