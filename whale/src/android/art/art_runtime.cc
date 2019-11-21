@@ -14,7 +14,7 @@
 #include "base/logging.h"
 #include "base/singleton.h"
 #include "base/cxx_helper.h"
-#include "art_utils.h"
+#include "android/art/art_utils.h"
 #include "classes.cc"
 
 namespace whale {
@@ -87,7 +87,7 @@ bool ArtRuntime::InjectLoader(JNIEnv *env) {
     return true;
 }
 
-bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env) {
+bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env, t_bridgeMethod bridge_method) {
 #define CHECK_FIELD(field, value)  \
     if ((field) == (value)) {  \
         LOG(ERROR) << "Failed to find " #field ".";  \
@@ -99,21 +99,18 @@ bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env) {
         LOG(INFO) << '[' << getpid() << ']' << " Unable to launch on houdini environment.";
         return false;
     }
+
     vm_ = vm;
+    bridge_method_ = bridge_method;
 
     if (!InjectLoader(env)) {
         return false;
     }
 
-//    bridge_method_ = env->GetStaticMethodID(
-//            java_class,
-//            "handleHookedMethod",
-//            "(Ljava/lang/reflect/Member;JLjava/lang/Object;Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;"
-//    );
-
     if (JNIExceptionCheck(env)) {
         return false;
     }
+
     api_level_ = GetAndroidApiLevel();
     PreLoadRequiredStuff(env);
     const char *art_path = kLibArtPath;
@@ -238,10 +235,11 @@ bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env) {
     class_linker_objects_.quick_generic_jni_trampoline_ = quick_generic_jni_trampoline;
 
     pthread_mutex_init(&mutex, nullptr);
-    EnforceDisableHiddenAPIPolicy();
+
     if (api_level_ >= ANDROID_N) {
         FixBugN();
     }
+
     return true;
 
 #undef CHECK_OFFSET
@@ -249,8 +247,7 @@ bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env) {
 
 
 jlong
-ArtRuntime::HookMethod(JNIEnv *env, jclass decl_class, jobject hooked_java_method,
-                       jobject addition_info) {
+ArtRuntime::HookMethod(JNIEnv *env, jclass decl_class, jobject hooked_java_method, void* addition_info) {
     ScopedSuspendAll suspend_all;
 
     jmethodID hooked_jni_method = env->FromReflectedMethod(hooked_java_method);
@@ -307,7 +304,7 @@ ArtRuntime::HookMethod(JNIEnv *env, jclass decl_class, jobject hooked_java_metho
     }
     param->origin_native_method_ = env->FromReflectedMethod(origin_java_method);
     param->hooked_native_method_ = hooked_jni_method;
-    param->addition_info_ = env->NewGlobalRef(addition_info);
+    param->addition_info_ = addition_info;
     param->hooked_method_ = env->NewGlobalRef(hooked_java_method);
     param->origin_method_ = env->NewGlobalRef(origin_java_method);
 
@@ -391,10 +388,7 @@ ArtThread *ArtRuntime::GetCurrentArtThread() {
 jobject
 ArtRuntime::InvokeHookedMethodBridge(JNIEnv *env, ArtHookParam *param, jobject receiver,
                                      jobjectArray array) {
-    // TODO: Update to a c function call.
-    return env->CallStaticObjectMethod(nullptr, nullptr,
-                                       param->hooked_method_, reinterpret_cast<jlong>(param),
-                                       param->addition_info_, receiver, array);
+    return bridge_method_(env, param->hooked_method_, reinterpret_cast<jlong>(param), param->addition_info_, receiver, array);
 }
 
 jlong ArtRuntime::GetMethodSlot(JNIEnv *env, jclass cl, jobject method_obj) {

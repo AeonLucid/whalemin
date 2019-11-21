@@ -2,6 +2,7 @@
 #define WHALE_ANDROID_ART_NATIVE_ON_LOAD_H_
 
 #include <jni.h>
+#include "android/art/native_on_load_types.h"
 
 constexpr const char *kMethodReserved0 = "reserved0";
 constexpr const char *kMethodReserved1 = "reserved1";
@@ -21,21 +22,21 @@ void WhaleRuntime_reserved1(JNIEnv *env, jclass cl);
 extern "C" {
 #endif  // __cplusplus
 
-jlong WhaleRuntime_hookMethodNative(JNIEnv *env, jclass cl, jclass decl_class, jobject method_obj, jobject addition_info);
+jlong Whale_hookMethodNative(JNIEnv *env, jclass decl_class, jobject method_obj, void* addition_info);
 
-jobject WhaleRuntime_invokeOriginalMethodNative(JNIEnv *env, jclass cl, jlong slot, jobject this_object, jobjectArray args);
+jobject Whale_invokeOriginalMethodNative(jlong slot, jobject this_object, jobjectArray args);
 
-jlong WhaleRuntime_getMethodSlot(JNIEnv *env, jclass cl, jclass decl_class, jobject method_obj);
+jlong Whale_getMethodSlot(JNIEnv *env, jclass cl, jclass decl_class, jobject method_obj);
 
-void WhaleRuntime_setObjectClassNative(JNIEnv *env, jclass cl, jobject obj, jclass parent_class);
+void Whale_setObjectClassNative(JNIEnv *env, jclass cl, jobject obj, jclass parent_class);
 
-jobject WhaleRuntime_cloneToSubclassNative(JNIEnv *env, jclass cl, jobject obj, jclass sub_class);
+jobject Whale_cloneToSubclassNative(JNIEnv *env, jclass cl, jobject obj, jclass sub_class);
 
-void WhaleRuntime_removeFinalFlagNative(JNIEnv *env, jclass cl, jclass java_class);
+void Whale_removeFinalFlagNative(JNIEnv *env, jclass cl, jclass java_class);
 
-void WhaleRuntime_enforceDisableHiddenAPIPolicy(JNIEnv *env, jclass cl);
+void Whale_enforceDisableHiddenAPIPolicy(JNIEnv *env, jclass cl);
 
-bool Native_OnLoad(JavaVM *vm);
+bool Whale_OnLoad(JavaVM *vm, t_bridgeMethod bridge_method);
 
 #ifdef __cplusplus
 }

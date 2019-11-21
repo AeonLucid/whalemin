@@ -8,6 +8,7 @@
 #include "dbi/instruction_set.h"
 #include "android/art/art_symbol_resolver.h"
 #include "android/art/art_hook_param.h"
+#include "android/art/native_on_load_types.h"
 #include "android/native_bridge.h"
 #include "android/jni_helper.h"
 #include "base/macros.h"
@@ -25,7 +26,6 @@ static constexpr const char *kLibArtPath = "/system/lib/libart.so";
 static constexpr const char *kLibAocPath = "/system/lib/libaoc.so";
 static constexpr const char *kLibHoudiniArtPath = "/system/lib/arm/libart.so";
 #endif
-
 
 namespace whale {
 namespace art {
@@ -68,10 +68,9 @@ class ArtRuntime final {
     bool InjectLoader(JNIEnv *env);
 
  public:
-    bool OnLoad(JavaVM *vm, JNIEnv *env);
+    bool OnLoad(JavaVM *vm, JNIEnv *env, t_bridgeMethod bridge_method);
 
-    jlong HookMethod(JNIEnv *env, jclass decl_class, jobject hooked_java_method,
-                     jobject addition_info);
+    jlong HookMethod(JNIEnv *env, jclass decl_class, jobject hooked_java_method, void* addition_info);
 
     JNIEnv *GetJniEnv() {
         JNIEnv *env = nullptr;
@@ -135,7 +134,7 @@ class ArtRuntime final {
     JavaVM *vm_;
     jclass java_class_;
     jobject custom_loader_;
-    // jmethodID bridge_method_;
+    t_bridgeMethod bridge_method_;
     s4 api_level_;
     void *art_elf_image_;
     NativeBridgeCallbacks OPTION *android_bridge_callbacks_;

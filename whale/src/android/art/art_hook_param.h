@@ -11,7 +11,7 @@ namespace art {
 struct ArtHookParam final {
     bool is_static_;
     const char *shorty_;
-    jobject addition_info_;
+    void *addition_info_;
     ptr_t origin_compiled_code_;
     ptr_t origin_jni_code_;
     u4 origin_access_flags;
