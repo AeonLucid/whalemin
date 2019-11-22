@@ -3,6 +3,7 @@
 
 #include <jni.h>
 #include <android/android_build.h>
+#include "android/art/art_helper.h"
 #include "android/art/art_runtime.h"
 #include "android/art/modifiers.h"
 #include "base/cxx_helper.h"
@@ -104,29 +105,6 @@ class ArtMethod final {
 
     void SetDeclaringClass(ptr_t declaring_class) {
         AssignOffset<ptr_t>(jni_method_, 0, declaring_class);
-    }
-
-    const char *GetShorty(JNIEnv *env, jobject java_method) {
-        if (symbols_->Art_GetMethodShorty != nullptr) {
-            return symbols_->Art_GetMethodShorty(env, jni_method_);
-        } else {
-            static jmethodID WhaleRuntime_getShorty = nullptr;
-            jclass java_class = ArtRuntime::Get()->java_class_;
-            if (WhaleRuntime_getShorty == nullptr) {
-                WhaleRuntime_getShorty = env->GetStaticMethodID(
-                        java_class,
-                        "getShorty",
-                        "(Ljava/lang/reflect/Member;)Ljava/lang/String;"
-                );
-            }
-            jstring jshorty = static_cast<jstring>(env->CallStaticObjectMethod(
-                    java_class,
-                    WhaleRuntime_getShorty,
-                    java_method
-            ));
-            const char *shorty = env->GetStringUTFChars(jshorty, nullptr);
-            return shorty;
-        }
     }
 
     jobject Clone(JNIEnv *env, u4 access_flags);

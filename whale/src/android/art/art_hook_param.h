@@ -9,20 +9,22 @@ namespace whale {
 namespace art {
 
 struct ArtHookParam final {
+
     bool is_static_;
     const char *shorty_;
-    void *addition_info_;
-    ptr_t origin_compiled_code_;
-    ptr_t origin_jni_code_;
-    u4 origin_access_flags;
-    u4 origin_code_item_off;
-    jobject origin_method_;
-    jobject hooked_method_;
+    void *user_data_;
     volatile ptr_t decl_class_;
-    jobject class_Loader_;
+
+    ptr_t origin_jni_code_;
+    ptr_t origin_quick_code_;
+    ptr_t origin_interpreter_code_ = nullptr;
+    u4 origin_access_flags_;
+    jobject origin_method_clone_;
+
+    FFIClosure *hooked_jni_closure_;
     jmethodID hooked_native_method_;
-    jmethodID origin_native_method_;
-    FFIClosure *jni_closure_;
+    jobject hooked_method_;
+
 };
 
 }  // namespace art

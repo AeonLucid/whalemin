@@ -14,6 +14,12 @@ Whale_hookMethodNative(JNIEnv *env, jclass decl_class, jobject method_obj, void*
     return runtime->HookMethod(env, decl_class, method_obj, addition_info);
 }
 
+bool
+Whale_restoreMethod(JNIEnv *env, jobject method_obj) {
+    auto runtime = whale::art::ArtRuntime::Get();
+    return runtime->RestoreMethod(env, method_obj);
+}
+
 jobject
 Whale_invokeOriginalMethodNative(jlong slot, jobject this_object,
                                  jobjectArray args) {

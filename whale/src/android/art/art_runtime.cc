@@ -211,71 +211,80 @@ bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env, t_bridgeMethod bridge_method) {
 jlong
 ArtRuntime::HookMethod(JNIEnv *env, jclass decl_class, jobject hooked_java_method, void* addition_info) {
     ScopedSuspendAll suspend_all;
+    ResolvedSymbols *symbols = GetSymbols();
 
-    jmethodID hooked_jni_method = env->FromReflectedMethod(hooked_java_method);
-    ArtMethod hooked_method(hooked_jni_method);
+    jmethodID hooked_native_method = env->FromReflectedMethod(hooked_java_method);
+    ArtMethod hooked_method(hooked_native_method);
     auto *param = new ArtHookParam();
 
-    param->class_Loader_ = env->NewGlobalRef(
-            env->CallObjectMethod(
-                    decl_class,
-                    WellKnownClasses::java_lang_Class_getClassLoader
-            )
-    );
+    // Metadata.
     param->shorty_ = GetShorty(env, hooked_java_method);
     param->is_static_ = hooked_method.HasAccessFlags(kAccStatic);
+    param->user_data_ = addition_info;
+    param->decl_class_ = hooked_method.GetDeclaringClass();
 
-    param->origin_compiled_code_ = hooked_method.GetEntryPointFromQuickCompiledCode();
-    param->origin_code_item_off = hooked_method.GetDexCodeItemOffset();
+    // Original information.
     param->origin_jni_code_ = hooked_method.GetEntryPointFromJni();
-    param->origin_access_flags = hooked_method.GetAccessFlags();
-    jobject origin_java_method = hooked_method.Clone(env, param->origin_access_flags);
+    param->origin_quick_code_ = hooked_method.GetEntryPointFromQuickCompiledCode();
+    param->origin_interpreter_code_ = hooked_method.GetEntryPointFromInterpreterCode();
+    param->origin_access_flags_ = hooked_method.GetAccessFlags();
+    param->origin_method_clone_ = env->NewGlobalRef(hooked_method.Clone(env, param->origin_access_flags_));
 
-    ResolvedSymbols *symbols = GetSymbols();
-    if (symbols->ProfileSaver_ForceProcessProfiles) {
-        symbols->ProfileSaver_ForceProcessProfiles();
-    }
-    // After android P, hotness_count_ maybe an imt_index_ for abstract method
-    if ((api_level_ > ANDROID_P && !hooked_method.HasAccessFlags(kAccAbstract))
-        || api_level_ >= ANDROID_N) {
-        hooked_method.SetHotnessCount(0);
-    }
-    // Clear the dex_code_item_offset_.
-    // It needs to be 0 since hooked methods have no CodeItems but the
-    // method they copy might.
-    hooked_method.SetDexCodeItemOffset(0);
-    u4 access_flags = hooked_method.GetAccessFlags();
-    if (api_level_ < ANDROID_O_MR1) {
-        access_flags |= kAccCompileDontBother_N;
-    } else {
-        access_flags |= kAccCompileDontBother_O_MR1;
-        access_flags |= kAccPreviouslyWarm_O_MR1;
-    }
-    access_flags |= kAccNative;
-    access_flags |= kAccFastNative;
-    if (api_level_ >= ANDROID_P) {
-        access_flags &= ~kAccCriticalNative_P;
-    }
-    hooked_method.SetAccessFlags(access_flags);
-    hooked_method.SetEntryPointFromQuickCompiledCode(
-            class_linker_objects_.quick_generic_jni_trampoline_
-    );
-    if (api_level_ < ANDROID_N
-        && symbols->artInterpreterToCompiledCodeBridge != nullptr) {
-        hooked_method.SetEntryPointFromInterpreterCode(symbols->artInterpreterToCompiledCodeBridge);
-    }
-    param->origin_native_method_ = env->FromReflectedMethod(origin_java_method);
-    param->hooked_native_method_ = hooked_jni_method;
-    param->addition_info_ = addition_info;
-    param->hooked_method_ = env->NewGlobalRef(hooked_java_method);
-    param->origin_method_ = env->NewGlobalRef(origin_java_method);
-
+    // Patch method in memory.
     BuildJniClosure(param);
 
-    hooked_method.SetEntryPointFromJni(param->jni_closure_->GetCode());
-    param->decl_class_ = hooked_method.GetDeclaringClass();
-    hooked_method_map_.insert(std::make_pair(hooked_jni_method, param));
+    hooked_method.SetEntryPointFromJni(param->hooked_jni_closure_->GetCode());
+    hooked_method.SetEntryPointFromQuickCompiledCode(class_linker_objects_.quick_generic_jni_trampoline_);
+    hooked_method.SetAccessFlags(param->origin_access_flags_ | kAccNative | kAccFastNative);
+
+    if (symbols->artInterpreterToCompiledCodeBridge != nullptr) {
+        hooked_method.SetEntryPointFromInterpreterCode(symbols->artInterpreterToCompiledCodeBridge);
+    }
+
+    param->hooked_native_method_ = hooked_native_method;
+    param->hooked_method_ = env->NewGlobalRef(hooked_java_method);
+
+    hooked_method_map_.insert(std::make_pair(hooked_native_method, param));
+
     return reinterpret_cast<jlong>(param);
+}
+
+bool ArtRuntime::RestoreMethod(JNIEnv *env, jobject method) {
+    // Obtain origin param.
+    auto jni_method = env->FromReflectedMethod(method);
+    auto entry = hooked_method_map_.find(jni_method);
+    if (entry == hooked_method_map_.end()) {
+        LOG(INFO) << "Failed to restore method.";
+        return false;
+    }
+
+    hooked_method_map_.erase(jni_method);
+
+    // Suspend.
+    ScopedSuspendAll suspend_all;
+
+    // Restore.
+    ArtMethod hooked_method(jni_method);
+    ArtHookParam *param = entry->second;
+
+    hooked_method.SetEntryPointFromJni(param->origin_jni_code_);
+    hooked_method.SetEntryPointFromQuickCompiledCode(param->origin_quick_code_);
+    hooked_method.SetAccessFlags(param->origin_access_flags_);
+
+    if (param->origin_interpreter_code_ != nullptr) {
+        hooked_method.SetEntryPointFromInterpreterCode(param->origin_interpreter_code_);
+    }
+
+    LOG(INFO) << "Restored method.";
+
+    // Clean-up.
+    env->DeleteGlobalRef(param->origin_method_clone_);
+    env->DeleteGlobalRef(param->hooked_method_);
+
+    delete param->hooked_jni_closure_;
+    delete param;
+
+    return true;
 }
 
 jobject
@@ -295,24 +304,24 @@ ArtRuntime::InvokeOriginalMethod(jlong slot, jobject this_object, jobjectArray a
         pthread_mutex_lock(&mutex);
         if (param->decl_class_ != decl_class) {
             ScopedSuspendAll suspend_all;
-            LOG(INFO)
-                    << "Notice: MovingGC cause the GcRoot References changed.";
-            jobject origin_java_method = hooked_method.Clone(env, param->origin_access_flags);
+            LOG(INFO) << "Notice: MovingGC cause the GcRoot References changed.";
+            jobject origin_java_method = hooked_method.Clone(env, param->origin_access_flags_);
             jmethodID origin_jni_method = env->FromReflectedMethod(origin_java_method);
             ArtMethod origin_method(origin_jni_method);
-            origin_method.SetEntryPointFromQuickCompiledCode(param->origin_compiled_code_);
+            origin_method.SetEntryPointFromQuickCompiledCode(param->origin_quick_code_);
             origin_method.SetEntryPointFromJni(param->origin_jni_code_);
-            origin_method.SetDexCodeItemOffset(param->origin_code_item_off);
-            param->origin_native_method_ = origin_jni_method;
-            env->DeleteGlobalRef(param->origin_method_);
-            param->origin_method_ = env->NewGlobalRef(origin_java_method);
+            if (param->origin_interpreter_code_ != nullptr) {
+                origin_method.SetEntryPointFromInterpreterCode(param->origin_interpreter_code_);
+            }
+            env->DeleteGlobalRef(param->origin_method_clone_);
+            param->origin_method_clone_ = env->NewGlobalRef(origin_java_method);
             param->decl_class_ = decl_class;
         }
         pthread_mutex_unlock(&mutex);
     }
 
     jobject ret = env->CallNonvirtualObjectMethod(
-            param->origin_method_,
+            param->origin_method_clone_,
             WellKnownClasses::java_lang_reflect_Method,
             WellKnownClasses::java_lang_reflect_Method_invoke,
             this_object,
@@ -350,7 +359,7 @@ ArtThread *ArtRuntime::GetCurrentArtThread() {
 jobject
 ArtRuntime::InvokeHookedMethodBridge(JNIEnv *env, ArtHookParam *param, jobject receiver,
                                      jobjectArray array) {
-    return bridge_method_(env, param->hooked_method_, reinterpret_cast<jlong>(param), param->addition_info_, receiver, array);
+    return bridge_method_(env, param->hooked_method_, reinterpret_cast<jlong>(param), param->user_data_, receiver, array);
 }
 
 jlong ArtRuntime::GetMethodSlot(JNIEnv *env, jclass cl, jobject method_obj) {

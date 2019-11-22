@@ -69,6 +69,8 @@ class ArtRuntime final {
 
     jlong HookMethod(JNIEnv *env, jclass decl_class, jobject hooked_java_method, void* addition_info);
 
+    bool RestoreMethod(JNIEnv *env, jobject method);
+
     JNIEnv *GetJniEnv() {
         JNIEnv *env = nullptr;
         jint ret = vm_->AttachCurrentThread(&env, nullptr);

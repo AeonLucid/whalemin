@@ -254,7 +254,7 @@ void BuildJniClosure(ArtHookParam *param) {
         cif->Parameter(FFIGetJniParameter(argument[i - 2]));
     }
     cif->FinalizeCif();
-    param->jni_closure_ = cif->CreateClosure(param, FFIJniDispatcher);
+    param->hooked_jni_closure_ = cif->CreateClosure(param, FFIJniDispatcher);
 }
 
 }  // namespace art
