@@ -9,8 +9,11 @@ namespace art {
 struct WellKnownClasses {
     static void Load(JNIEnv *env);
 
+    static jclass java_lang_Void;
+
     static jclass java_lang_Object;
     static jclass java_lang_reflect_Method;
+    static jclass java_lang_reflect_Constructor;
     static jclass java_lang_Class;
     static jclass java_lang_ClassLoader;
     static jclass java_lang_reflect_AccessibleObject;
@@ -18,6 +21,9 @@ struct WellKnownClasses {
     static jclass java_lang_IllegalArgumentException;
 
     static jmethodID java_lang_reflect_Method_invoke;
+    static jmethodID java_lang_reflect_Method_getReturnType;
+    static jmethodID java_lang_reflect_Method_getParameterTypes;
+    static jmethodID java_lang_reflect_Constructor_getParameterTypes;
     static jmethodID java_lang_Class_getClassLoader;
     static jmethodID java_lang_reflect_AccessibleObject_setAccessible;
     static jmethodID java_lang_Thread_currentThread;

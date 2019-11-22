@@ -15,7 +15,6 @@
 #include "base/singleton.h"
 #include "base/cxx_helper.h"
 #include "android/art/art_utils.h"
-#include "classes.cc"
 
 namespace whale {
 namespace art {
@@ -31,67 +30,6 @@ void PreLoadRequiredStuff(JNIEnv *env) {
     ScopedNoGCDaemons::Load(env);
 }
 
-bool ArtRuntime::InjectLoader(JNIEnv *env) {
-    jclass classloader = env->FindClass("java/lang/ClassLoader");
-    jmethodID getsyscl_mid = env->GetStaticMethodID(classloader, "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
-    jobject sys_classloader = env->CallStaticObjectMethod(classloader, getsyscl_mid);
-
-    if (sys_classloader == nullptr) {
-        LOG(ERROR) << "InjectClasses failed: getSystemClassLoader.";
-        return false;
-    }
-
-    jclass memoryclassloader_cls = env->FindClass("dalvik/system/InMemoryDexClassLoader");
-
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
-    }
-
-    if (memoryclassloader_cls != nullptr) {
-        // Create java byte array of dex file.
-        jbyteArray dexBytes = env->NewByteArray(sizeof(whaleDex));
-        env->SetByteArrayRegion(dexBytes, 0, sizeof(whaleDex), (const jbyte *) whaleDex);
-
-        // Create bytebuffer of the dex file.
-        jclass bytebuffer_cls = env->FindClass("java/nio/ByteBuffer");
-        jmethodID bytebuffer_mid = env->GetStaticMethodID(bytebuffer_cls, "wrap", "([B)Ljava/nio/ByteBuffer;");
-        jobject bytebuffer = env->CallStaticObjectMethod(bytebuffer_cls, bytebuffer_mid, dexBytes);
-
-        // Create InMemoryDexClassLoader.
-        jmethodID memoryclassloader_constr = env->GetMethodID(memoryclassloader_cls, "<init>", "(Ljava/nio/ByteBuffer;Ljava/lang/ClassLoader;)V");
-        jobject myloader = env->NewObject(memoryclassloader_cls, memoryclassloader_constr, bytebuffer, sys_classloader);
-
-        custom_loader_ = env->NewGlobalRef(myloader);
-
-        // Clean-up.
-        env->DeleteLocalRef(dexBytes);
-    } else {
-        LOG(ERROR) << "InjectClasses failed: InMemoryDexClassLoader missing, SDK < 26.";
-        return false;
-    }
-
-    jclass whale_runtime_cls = find_class_from_loader(env, custom_loader_, "com/lody/whale/WhaleRuntime");
-    if (whale_runtime_cls == nullptr) {
-        LOG(ERROR) << "InjectClasses failed: WhaleRuntime missing.";
-        return false;
-    }
-
-    java_class_ = (jclass) env->NewGlobalRef(whale_runtime_cls);
-
-    // Register natives so jni_code_offset_ can be found.
-    static JNINativeMethod gMethods[] = {
-            NATIVE_METHOD(WhaleRuntime, reserved0, "()V"),
-            NATIVE_METHOD(WhaleRuntime, reserved1, "()V")
-    };
-
-    if (env->RegisterNatives(java_class_, gMethods, NELEM(gMethods)) < 0) {
-        LOG(ERROR) << "RegisterNatives failed for WhaleRuntime";
-        return false;
-    }
-
-    return true;
-}
-
 bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env, t_bridgeMethod bridge_method) {
     if ((kRuntimeISA == InstructionSet::kArm || kRuntimeISA == InstructionSet::kArm64) && IsFileInMemory("libhoudini.so")) {
         LOG(INFO) << '[' << getpid() << ']' << " Unable to launch on houdini environment.";
@@ -100,10 +38,6 @@ bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env, t_bridgeMethod bridge_method) {
 
     vm_ = vm;
     bridge_method_ = bridge_method;
-
-    if (!InjectLoader(env)) {
-        return false;
-    }
 
     if (JNIExceptionCheck(env)) {
         return false;
@@ -288,7 +222,7 @@ ArtRuntime::HookMethod(JNIEnv *env, jclass decl_class, jobject hooked_java_metho
                     WellKnownClasses::java_lang_Class_getClassLoader
             )
     );
-    param->shorty_ = hooked_method.GetShorty(env, hooked_java_method);
+    param->shorty_ = GetShorty(env, hooked_java_method);
     param->is_static_ = hooked_method.HasAccessFlags(kAccStatic);
 
     param->origin_compiled_code_ = hooked_method.GetEntryPointFromQuickCompiledCode();

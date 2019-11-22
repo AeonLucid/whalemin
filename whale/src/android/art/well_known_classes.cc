@@ -6,8 +6,11 @@
 namespace whale {
 namespace art {
 
+jclass WellKnownClasses::java_lang_Void;
+
 jclass WellKnownClasses::java_lang_Object;
 jclass WellKnownClasses::java_lang_reflect_Method;
+jclass WellKnownClasses::java_lang_reflect_Constructor;
 jclass WellKnownClasses::java_lang_Class;
 jclass WellKnownClasses::java_lang_ClassLoader;
 jclass WellKnownClasses::java_lang_reflect_AccessibleObject;
@@ -15,6 +18,9 @@ jclass WellKnownClasses::java_lang_Thread;
 jclass WellKnownClasses::java_lang_IllegalArgumentException;
 
 jmethodID WellKnownClasses::java_lang_reflect_Method_invoke;
+jmethodID WellKnownClasses::java_lang_reflect_Method_getReturnType;
+jmethodID WellKnownClasses::java_lang_reflect_Method_getParameterTypes;
+jmethodID WellKnownClasses::java_lang_reflect_Constructor_getParameterTypes;
 jmethodID WellKnownClasses::java_lang_Class_getClassLoader;
 jmethodID WellKnownClasses::java_lang_reflect_AccessibleObject_setAccessible;
 jmethodID WellKnownClasses::java_lang_Thread_currentThread;
@@ -71,8 +77,11 @@ static jmethodID CachePrimitiveBoxingMethod(JNIEnv *env, char prim_name, const c
 
 
 void WellKnownClasses::Load(JNIEnv *env) {
+    java_lang_Void = CacheClass(env, "java/lang/Void");
+
     java_lang_Object = CacheClass(env, "java/lang/Object");
     java_lang_reflect_Method = CacheClass(env, "java/lang/reflect/Method");
+    java_lang_reflect_Constructor = CacheClass(env, "java/lang/reflect/Constructor");
     java_lang_Class = CacheClass(env, "java/lang/Class");
     java_lang_ClassLoader = CacheClass(env, "java/lang/ClassLoader");
     java_lang_reflect_AccessibleObject = CacheClass(env, "java/lang/reflect/AccessibleObject");
@@ -83,6 +92,9 @@ void WellKnownClasses::Load(JNIEnv *env) {
                                                  "()Ljava/lang/Thread;");
     java_lang_reflect_Method_invoke = CacheMethod(env, java_lang_reflect_Method, false, "invoke",
                                                   "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;");
+    java_lang_reflect_Method_getReturnType = CacheMethod(env, java_lang_reflect_Method, false, "getReturnType", "()Ljava/lang/Class;");
+    java_lang_reflect_Method_getParameterTypes = CacheMethod(env, java_lang_reflect_Method, false, "getParameterTypes", "()[Ljava/lang/Class;");
+    java_lang_reflect_Constructor_getParameterTypes = CacheMethod(env, java_lang_reflect_Constructor, false, "getParameterTypes", "()[Ljava/lang/Class;");
     java_lang_Class_getClassLoader = CacheMethod(env, java_lang_Class,
                                                              false,
                                                              "getClassLoader",

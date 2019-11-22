@@ -6,6 +6,7 @@
 #include "platform/linux/elf_image.h"
 #include "platform/linux/process_map.h"
 #include "dbi/instruction_set.h"
+#include "android/art/art_helper.h"
 #include "android/art/art_symbol_resolver.h"
 #include "android/art/art_hook_param.h"
 #include "android/art/native_on_load_types.h"
@@ -64,10 +65,6 @@ class ArtRuntime final {
 
     ArtRuntime() {}
 
- private:
-    bool InjectLoader(JNIEnv *env);
-
- public:
     bool OnLoad(JavaVM *vm, JNIEnv *env, t_bridgeMethod bridge_method);
 
     jlong HookMethod(JNIEnv *env, jclass decl_class, jobject hooked_java_method, void* addition_info);
