@@ -45,6 +45,12 @@ DISALLOW_COPY_AND_ASSIGN(TypeName)
 
 #define OPTION __unused
 
+#define CHECK_FIELD(field, value)  \
+    if ((field) == (value)) {  \
+        LOG(ERROR) << "Failed to find " #field ".";  \
+        return false;  \
+    }
+
 #define C_API extern "C"
 
 #endif  // WHALE_BASE_MACROS_H_

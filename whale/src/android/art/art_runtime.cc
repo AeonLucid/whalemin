@@ -42,6 +42,11 @@ bool ArtRuntime::InjectLoader(JNIEnv *env) {
     }
 
     jclass memoryclassloader_cls = env->FindClass("dalvik/system/InMemoryDexClassLoader");
+
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
     if (memoryclassloader_cls != nullptr) {
         // Create java byte array of dex file.
         jbyteArray dexBytes = env->NewByteArray(sizeof(whaleDex));
@@ -88,14 +93,7 @@ bool ArtRuntime::InjectLoader(JNIEnv *env) {
 }
 
 bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env, t_bridgeMethod bridge_method) {
-#define CHECK_FIELD(field, value)  \
-    if ((field) == (value)) {  \
-        LOG(ERROR) << "Failed to find " #field ".";  \
-        return false;  \
-    }
-    if ((kRuntimeISA == InstructionSet::kArm
-         || kRuntimeISA == InstructionSet::kArm64)
-        && IsFileInMemory("libhoudini.so")) {
+    if ((kRuntimeISA == InstructionSet::kArm || kRuntimeISA == InstructionSet::kArm64) && IsFileInMemory("libhoudini.so")) {
         LOG(INFO) << '[' << getpid() << ']' << " Unable to launch on houdini environment.";
         return false;
     }
@@ -123,39 +121,70 @@ bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env, t_bridgeMethod bridge_method) {
         // The log will all output from ArtSymbolResolver.
         return false;
     }
+
+    uintptr_t runtime_start = 0;
+    uintptr_t runtime_end = 0;
+
+    ForeachMemoryRange(
+            [&](uintptr_t begin, uintptr_t end, char *perm, char *mapname) -> bool {
+                if (strstr(mapname, "libandroid_runtime.so")) {
+                    runtime_start = begin;
+                    runtime_end = end;
+                    return false;
+                }
+                return true;
+            });
+
+    if (runtime_start == 0 || runtime_end == 0) {
+        LOG(ERROR) << "Unable to find libandroid_runtime.so.";
+        return false;
+    }
+
+    jclass process = env->FindClass("android/os/Process");
+    jmethodID set_arg_v0 = env->GetStaticMethodID(process, "setArgV0", "(Ljava/lang/String;)V");
+
+    size_t entrypoint_filed_size = (api_level_ <= ANDROID_LOLLIPOP) ? 8 : kPointerSize;
+
+    u4 expected_access_flags = kAccPublic | kAccStatic | kAccFinal | kAccNative;
+    u4 all_flags_except_public_api = ~kAccPublicApi >> 0U;
+
     offset_t jni_code_offset = INT32_MAX;
     offset_t access_flags_offset = INT32_MAX;
+    u1 remaining = 2;
 
-    size_t entrypoint_filed_size = (api_level_ <= ANDROID_LOLLIPOP) ? 8
-                                                                    : kPointerSize;
-    u4 expected_access_flags = kAccPrivate | kAccStatic | kAccNative;
-    jmethodID reserved0 = env->GetStaticMethodID(java_class_, kMethodReserved0, "()V");
-    jmethodID reserved1 = env->GetStaticMethodID(java_class_, kMethodReserved1, "()V");
+    for (offset_t offset = 0; offset != 64 && remaining != 0; offset += 4) {
+        if (jni_code_offset == INT32_MAX) {
+            auto addr = MemberOf<uintptr_t>(set_arg_v0, offset);
+            if (addr >= runtime_start && addr < runtime_end) {
+                jni_code_offset = offset;
+                remaining--;
+            }
+        }
 
-    for (offset_t offset = 0; offset != sizeof(u4) * 24; offset += sizeof(u4)) {
-        if (MemberOf<u4>(reserved0, offset) == expected_access_flags) {
-            access_flags_offset = offset;
-            break;
+        if (access_flags_offset == INT32_MAX) {
+            auto flags = MemberOf<u4>(set_arg_v0, offset);
+            if ((flags & all_flags_except_public_api) == expected_access_flags) {
+                access_flags_offset = offset;
+                remaining--;
+            }
         }
     }
-    void *native_function = reinterpret_cast<void *>(WhaleRuntime_reserved0);
 
-    for (offset_t offset = 0; offset != sizeof(u4) * 24; offset += sizeof(u4)) {
-        if (MemberOf<ptr_t>(reserved0, offset) == native_function) {
-            jni_code_offset = offset;
-            break;
-        }
+    if (remaining != 0) {
+        LOG(ERROR) << "Unable to find jni_code_offset / access_flags_offset.";
+        return false;
     }
-    CHECK_FIELD(access_flags_offset, INT32_MAX)
-    CHECK_FIELD(jni_code_offset, INT32_MAX)
 
-    method_offset_.method_size_ = DistanceOf(reserved0, reserved1);
+    offset_t quick_code_offset = jni_code_offset + entrypoint_filed_size;
+
+    method_offset_.method_size_ = (api_level_ < ANDROID_LOLLIPOP) ? quick_code_offset + 32 : quick_code_offset + kPointerSize;
     method_offset_.jni_code_offset_ = jni_code_offset;
-    method_offset_.quick_code_offset_ = jni_code_offset + entrypoint_filed_size;
+    method_offset_.quick_code_offset_ = quick_code_offset;
     method_offset_.access_flags_offset_ = access_flags_offset;
     method_offset_.dex_code_item_offset_offset_ = access_flags_offset + sizeof(u4);
     method_offset_.dex_method_index_offset_ = access_flags_offset + sizeof(u4) * 2;
     method_offset_.method_index_offset_ = access_flags_offset + sizeof(u4) * 3;
+
     if (api_level_ < ANDROID_N
         && GetSymbols()->artInterpreterToCompiledCodeBridge != nullptr) {
         method_offset_.interpreter_code_offset_ = jni_code_offset - entrypoint_filed_size;
@@ -167,7 +196,6 @@ bool ArtRuntime::OnLoad(JavaVM *vm, JNIEnv *env, t_bridgeMethod bridge_method) {
             art_elf_image_,
             "art_quick_generic_jni_trampoline"
     );
-    env->CallStaticVoidMethod(java_class_, reserved0);
 
     /**
      * Fallback to do a relative memory search for quick_generic_jni_trampoline,
