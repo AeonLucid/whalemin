@@ -45,10 +45,10 @@ Whale_removeFinalFlagNative(JNI_START, jclass java_class) {
     runtime->RemoveFinalFlag(env, java_class);
 }
 
-void
-Whale_enforceDisableHiddenAPIPolicy(JNI_START) {
+bool
+Whale_enforceDisableHiddenAPIPolicy() {
     auto runtime = whale::art::ArtRuntime::Get();
-    runtime->EnforceDisableHiddenAPIPolicy();
+    return runtime->EnforceDisableHiddenAPIPolicy();
 }
 
 bool Whale_OnLoad(JavaVM *vm, t_bridgeMethod bridge_method) {

@@ -34,7 +34,7 @@ jobject Whale_cloneToSubclassNative(JNIEnv *env, jclass cl, jobject obj, jclass 
 
 void Whale_removeFinalFlagNative(JNIEnv *env, jclass cl, jclass java_class);
 
-void Whale_enforceDisableHiddenAPIPolicy(JNIEnv *env, jclass cl);
+bool Whale_enforceDisableHiddenAPIPolicy();
 
 bool Whale_OnLoad(JavaVM *vm, t_bridgeMethod bridge_method);
 

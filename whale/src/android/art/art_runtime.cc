@@ -432,51 +432,49 @@ bool OnInvokeHiddenAPI() {
  * But we don't know the symbols until it's published.
  */
 ALWAYS_INLINE bool ArtRuntime::EnforceDisableHiddenAPIPolicyImpl() {
-    JNIEnv *env = GetJniEnv();
-    jfieldID java_lang_Class_shadow$_klass_ = env->GetFieldID(
-            WellKnownClasses::java_lang_Object,
-            "shadow$_klass_",
-            "Ljava/lang/Class;"
-    );
-    JNIExceptionClear(env);
-    if (java_lang_Class_shadow$_klass_ != nullptr) {
+    if (api_level_ < ANDROID_P) {
         return true;
     }
+
     void *symbol = nullptr;
 
-    // Android P : Preview 1 ~ 4 version
-    symbol = WDynamicLibSymbol(
-            art_elf_image_,
-            "_ZN3art9hiddenapi25ShouldBlockAccessToMemberINS_8ArtFieldEEEbPT_PNS_6ThreadENSt3__18functionIFbS6_EEENS0_12AccessMethodE"
-    );
-    if (symbol) {
-        WInlineHookFunction(symbol, reinterpret_cast<void *>(OnInvokeHiddenAPI), nullptr);
-    }
-    symbol = WDynamicLibSymbol(
-            art_elf_image_,
-            "_ZN3art9hiddenapi25ShouldBlockAccessToMemberINS_9ArtMethodEEEbPT_PNS_6ThreadENSt3__18functionIFbS6_EEENS0_12AccessMethodE"
-    );
+    if (api_level_ == ANDROID_P) {
+        symbol = WDynamicLibSymbol(art_elf_image_,
+                                   "_ZN3art9hiddenapi6detail19GetMemberActionImplINS_9ArtMethodEEENS0_"
+                                   "6ActionEPT_NS_20HiddenApiAccessFlags7ApiListES4_NS0_12AccessMethodE"
+        );
 
-    if (symbol) {
-        WInlineHookFunction(symbol, reinterpret_cast<void *>(OnInvokeHiddenAPI), nullptr);
-        return true;
+        if (symbol) {
+            WInlineHookFunction(symbol, reinterpret_cast<void *>(OnInvokeHiddenAPI), nullptr);
+        }
+
+        symbol = WDynamicLibSymbol(art_elf_image_,
+                                   "_ZN3art9hiddenapi6detail19GetMemberActionImplINS_8ArtFieldEEENS0_"
+                                   "6ActionEPT_NS_20HiddenApiAccessFlags7ApiListES4_NS0_12AccessMethodE");
+
+        if (symbol) {
+            WInlineHookFunction(symbol, reinterpret_cast<void *>(OnInvokeHiddenAPI), nullptr);
+        }
+    } else {
+        symbol = WDynamicLibSymbol(art_elf_image_,
+                                   "_ZN3art9hiddenapi6detail28ShouldDenyAccessToMemberImplINS_"
+                                   "9ArtMethodEEEbPT_NS0_7ApiListENS0_12AccessMethodE"
+        );
+
+        if (symbol) {
+            WInlineHookFunction(symbol, reinterpret_cast<void *>(OnInvokeHiddenAPI), nullptr);
+        }
+
+        symbol = WDynamicLibSymbol(art_elf_image_,
+                                   "_ZN3art9hiddenapi6detail28ShouldDenyAccessToMemberImplINS_"
+                                   "8ArtFieldEEEbPT_NS0_7ApiListENS0_12AccessMethodE");
+
+        if (symbol) {
+            WInlineHookFunction(symbol, reinterpret_cast<void *>(OnInvokeHiddenAPI), nullptr);
+        }
     }
-    // Android P : Release version
-    symbol = WDynamicLibSymbol(
-            art_elf_image_,
-            "_ZN3art9hiddenapi6detail19GetMemberActionImplINS_8ArtFieldEEENS0_6ActionEPT_NS_20HiddenApiAccessFlags7ApiListES4_NS0_12AccessMethodE"
-    );
-    if (symbol) {
-        WInlineHookFunction(symbol, reinterpret_cast<void *>(OnInvokeHiddenAPI), nullptr);
-    }
-    symbol = WDynamicLibSymbol(
-            art_elf_image_,
-            "_ZN3art9hiddenapi6detail19GetMemberActionImplINS_9ArtMethodEEENS0_6ActionEPT_NS_20HiddenApiAccessFlags7ApiListES4_NS0_12AccessMethodE"
-    );
-    if (symbol) {
-        WInlineHookFunction(symbol, reinterpret_cast<void *>(OnInvokeHiddenAPI), nullptr);
-    }
-    return symbol != nullptr;
+
+    return true;
 }
 
 ptr_t ArtRuntime::CloneArtObject(ptr_t art_object) {
