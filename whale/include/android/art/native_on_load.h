@@ -26,7 +26,7 @@ jlong Whale_hookMethodNative(JNIEnv *env, jclass decl_class, jobject method_obj,
 
 bool Whale_restoreMethod(JNIEnv *env, jobject method_obj);
 
-jobject Whale_invokeOriginalMethodNative(jlong slot, jobject this_object, jobjectArray args);
+jobject Whale_invokeOriginalMethodNative(JNIEnv *env, jlong slot, jobject this_object, jobjectArray args);
 
 jlong Whale_getMethodSlot(JNIEnv *env, jclass cl, jclass decl_class, jobject method_obj);
 

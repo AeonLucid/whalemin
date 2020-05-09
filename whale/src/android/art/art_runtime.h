@@ -105,7 +105,7 @@ class ArtRuntime final {
                              jobjectArray array);
 
     jobject
-    InvokeOriginalMethod(jlong slot, jobject this_object, jobjectArray args);
+    InvokeOriginalMethod(JNIEnv *env, jlong slot, jobject this_object, jobjectArray args);
 
     jlong GetMethodSlot(JNIEnv *env, jclass cl, jobject method_obj);
 

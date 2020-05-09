@@ -21,10 +21,10 @@ Whale_restoreMethod(JNIEnv *env, jobject method_obj) {
 }
 
 jobject
-Whale_invokeOriginalMethodNative(jlong slot, jobject this_object,
-                                 jobjectArray args) {
+Whale_invokeOriginalMethodNative(JNIEnv *env, jlong slot,
+                                 jobject this_object, jobjectArray args) {
     auto runtime = whale::art::ArtRuntime::Get();
-    return runtime->InvokeOriginalMethod(slot, this_object, args);
+    return runtime->InvokeOriginalMethod(env, slot, this_object, args);
 }
 
 jlong

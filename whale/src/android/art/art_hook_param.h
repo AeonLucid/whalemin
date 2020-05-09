@@ -19,6 +19,7 @@ struct ArtHookParam final {
     ptr_t origin_quick_code_;
     ptr_t origin_interpreter_code_ = nullptr;
     u4 origin_access_flags_;
+    u4 origin_dex_offset_;
     jobject origin_method_clone_;
 
     FFIClosure *hooked_jni_closure_;

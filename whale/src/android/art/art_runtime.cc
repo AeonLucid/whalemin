@@ -215,6 +215,12 @@ ArtRuntime::HookMethod(JNIEnv *env, jclass decl_class, jobject hooked_java_metho
 
     jmethodID hooked_native_method = env->FromReflectedMethod(hooked_java_method);
     ArtMethod hooked_method(hooked_native_method);
+
+    if ((hooked_method.GetAccessFlags() & kAccNative) != 0) {
+        LOG(ERROR) << "Unable to hook native method.";
+        return 0;
+    }
+
     auto *param = new ArtHookParam();
 
     // Metadata.
@@ -228,14 +234,38 @@ ArtRuntime::HookMethod(JNIEnv *env, jclass decl_class, jobject hooked_java_metho
     param->origin_quick_code_ = hooked_method.GetEntryPointFromQuickCompiledCode();
     param->origin_interpreter_code_ = hooked_method.GetEntryPointFromInterpreterCode();
     param->origin_access_flags_ = hooked_method.GetAccessFlags();
+    param->origin_dex_offset_ = hooked_method.GetDexCodeItemOffset();
     param->origin_method_clone_ = env->NewGlobalRef(hooked_method.Clone(env, param->origin_access_flags_));
+
+    // Force profiling before patching.
+    if (symbols->ProfileSaver_ForceProcessProfiles) {
+        symbols->ProfileSaver_ForceProcessProfiles();
+    }
 
     // Patch method in memory.
     BuildJniClosure(param);
 
+    u4 access_flags = param->origin_access_flags_;
+
+    if (api_level_ < ANDROID_O_MR1) {
+        access_flags |= kAccCompileDontBother_N;
+    } else {
+        access_flags |= kAccCompileDontBother_O_MR1;
+        access_flags |= kAccPreviouslyWarm_O_MR1;
+    }
+
+    access_flags |= kAccNative;
+    access_flags |= kAccFastNative;
+
+    if (api_level_ >= ANDROID_P) {
+        access_flags &= ~kAccCriticalNative_P;
+    }
+
+    hooked_method.SetDexCodeItemOffset(0);
+    hooked_method.SetHotnessCount(0);
     hooked_method.SetEntryPointFromJni(param->hooked_jni_closure_->GetCode());
     hooked_method.SetEntryPointFromQuickCompiledCode(class_linker_objects_.quick_generic_jni_trampoline_);
-    hooked_method.SetAccessFlags(param->origin_access_flags_ | kAccNative | kAccFastNative);
+    hooked_method.SetAccessFlags(access_flags);
 
     if (symbols->artInterpreterToCompiledCodeBridge != nullptr) {
         hooked_method.SetEntryPointFromInterpreterCode(symbols->artInterpreterToCompiledCodeBridge);
@@ -258,18 +288,21 @@ bool ArtRuntime::RestoreMethod(JNIEnv *env, jobject method) {
         return false;
     }
 
-    hooked_method_map_.erase(jni_method);
+    // hooked_method_map_.erase(jni_method);
 
     // Suspend.
     ScopedSuspendAll suspend_all;
 
     // Restore.
-    ArtMethod hooked_method(jni_method);
     ArtHookParam *param = entry->second;
+    ArtMethod hooked_method(param->hooked_native_method_);
 
+    hooked_method.SetHotnessCount(0);
     hooked_method.SetEntryPointFromJni(param->origin_jni_code_);
     hooked_method.SetEntryPointFromQuickCompiledCode(param->origin_quick_code_);
     hooked_method.SetAccessFlags(param->origin_access_flags_);
+    hooked_method.SetDexCodeItemOffset(param->origin_dex_offset_);
+    hooked_method.SetDeclaringClass(param->decl_class_);
 
     if (param->origin_interpreter_code_ != nullptr) {
         hooked_method.SetEntryPointFromInterpreterCode(param->origin_interpreter_code_);
@@ -278,18 +311,17 @@ bool ArtRuntime::RestoreMethod(JNIEnv *env, jobject method) {
     LOG(INFO) << "Restored method.";
 
     // Clean-up.
-    env->DeleteGlobalRef(param->origin_method_clone_);
-    env->DeleteGlobalRef(param->hooked_method_);
-
-    delete param->hooked_jni_closure_;
-    delete param;
+//    env->DeleteGlobalRef(param->origin_method_clone_);
+//    env->DeleteGlobalRef(param->hooked_method_);
+//
+//    delete param->hooked_jni_closure_;
+//    delete param;
 
     return true;
 }
 
 jobject
-ArtRuntime::InvokeOriginalMethod(jlong slot, jobject this_object, jobjectArray args) {
-    JNIEnv *env = GetJniEnv();
+ArtRuntime::InvokeOriginalMethod(JNIEnv *env, jlong slot, jobject this_object, jobjectArray args) {
     auto *param = reinterpret_cast<ArtHookParam *>(slot);
     if (slot <= 0) {
         env->ThrowNew(
@@ -298,6 +330,7 @@ ArtRuntime::InvokeOriginalMethod(jlong slot, jobject this_object, jobjectArray a
         );
         return nullptr;
     }
+
     ArtMethod hooked_method(param->hooked_native_method_);
     ptr_t decl_class = hooked_method.GetDeclaringClass();
     if (param->decl_class_ != decl_class) {
@@ -310,15 +343,21 @@ ArtRuntime::InvokeOriginalMethod(jlong slot, jobject this_object, jobjectArray a
             ArtMethod origin_method(origin_jni_method);
             origin_method.SetEntryPointFromQuickCompiledCode(param->origin_quick_code_);
             origin_method.SetEntryPointFromJni(param->origin_jni_code_);
+            origin_method.SetDexCodeItemOffset(param->origin_dex_offset_);
+
             if (param->origin_interpreter_code_ != nullptr) {
                 origin_method.SetEntryPointFromInterpreterCode(param->origin_interpreter_code_);
             }
+
+            // param->origin_native_method_ = origin_jni_method;
             env->DeleteGlobalRef(param->origin_method_clone_);
             param->origin_method_clone_ = env->NewGlobalRef(origin_java_method);
             param->decl_class_ = decl_class;
         }
         pthread_mutex_unlock(&mutex);
     }
+
+    LOG(INFO) << "Calling..";
 
     jobject ret = env->CallNonvirtualObjectMethod(
             param->origin_method_clone_,
@@ -327,6 +366,9 @@ ArtRuntime::InvokeOriginalMethod(jlong slot, jobject this_object, jobjectArray a
             this_object,
             args
     );
+
+    LOG(INFO) << "Returned..";
+
     return ret;
 }
 
